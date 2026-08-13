@@ -1,0 +1,10 @@
+# Normalize all text to LF in the repository, regardless of the platform a
+# contributor works on. Without this, line endings depend on each person's
+# core.autocrlf setting, and CRLF eventually lands in a committed blob.
+* text=auto eol=lf
+
+# Explicit for the file types where a stray CR actually breaks something.
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.sh    text eol=lf

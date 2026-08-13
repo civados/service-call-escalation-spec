@@ -1,0 +1,16 @@
+# Review routing. Combined with a repository ruleset that requires review,
+# this ensures no change to the schema or the specification merges unreviewed.
+#
+# Replace @civados/maintainers with a real team once the organization has one.
+# A CODEOWNERS entry pointing at a team that does not exist silently matches
+# nobody, which is worse than having no file at all.
+
+*                                   @civados/maintainers
+
+# The schema and the spec are the contract. Changes here are breaking changes
+# by default and warrant closer review than documentation edits.
+/schema/                            @civados/maintainers
+/SPEC.md                            @civados/maintainers
+
+# CI defines what "valid" means in practice.
+/.github/workflows/                 @civados/maintainers

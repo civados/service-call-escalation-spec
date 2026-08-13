@@ -1,0 +1,147 @@
+{
+  "version": "1.0",
+  "organization": "Example Controls Integration Group",
+  "timezone": "America/Chicago",
+
+  "business_hours": [
+    { "days": ["monday", "tuesday", "wednesday", "thursday", "friday"], "start": "07:00", "end": "17:00" }
+  ],
+
+  "rules": [
+    {
+      "id": "p1-line-down-controls-fault",
+      "description": "A controls fault that halts a production line is functionally the same as a mechanical failure from the plant's point of view: the line is not running. The fix, though, usually starts with an engineer looking at the program remotely rather than a truck being dispatched, because most PLC and HMI faults are resolvable over a remote connection faster than any technician can drive to site. The first rung reflects that, but its wait is kept short enough that a real down line does not stall waiting on a login. The second rung names the assigned controls engineer for this program specifically, not a general on call technician, because a fault in this rung of ladder logic usually needs someone who has already worked in this program's I/O map and naming convention, and a generalist who has never opened it can lose the first hour just getting oriented. Relationship is ignored because a stopped line is not less urgent for a first time customer.",
+      "match": {
+        "asset_criticality": ["production_critical"],
+        "service_condition": ["down"]
+      },
+      "priority": 1,
+      "response_target": {
+        "acknowledge_within_seconds": 45,
+        "human_contact_within_minutes": 15,
+        "onsite_target_hours": 6
+      },
+      "escalation_ladder": [
+        { "notify": "remote_diagnostics_engineer", "via": ["voice", "push"], "wait_seconds": 180 },
+        { "notify": "assigned_controls_engineer", "via": ["voice", "sms"], "wait_seconds": 300 },
+        { "notify": "secondary_controls_engineer", "via": ["voice"], "wait_seconds": 300 },
+        { "notify": "integration_project_manager", "via": ["voice"], "wait_seconds": 600 }
+      ],
+      "fallback": {
+        "action": "answering_service_live_transfer",
+        "never": ["voicemail_only", "silent_drop"],
+        "notes": "A live human confirms an engineer is engaged. A PLC fault left on voicemail is a line that stays down until someone happens to check messages."
+      }
+    },
+    {
+      "id": "p1-commissioning-unclassified-critical",
+      "description": "A fault that surfaces during a commissioning window, before the line has ever run production, often has no documented asset_criticality yet because the criticality assessment has not been finalized against a live production schedule, and the relationship is usually new since commissioning is most often a first job for that line. Elsewhere in this matrix an unresolved criticality defaults to priority 2 through default_rule, deliberately, because most unknowns are genuinely ambiguous and worth a human sorting them out. Commissioning is the deliberate exception. A fault that blocks a scheduled go live is time boxed against a customer's production start date, with people who already traveled to be there for it, so this rule treats a new relationship plus an unresolved criticality plus an active fault as priority 1 rather than waiting for someone to first resolve the ambiguity.",
+      "match": {
+        "relationship": ["new"],
+        "asset_criticality": ["unknown"],
+        "service_condition": ["down", "degraded", "intermittent"]
+      },
+      "priority": 1,
+      "response_target": {
+        "acknowledge_within_seconds": 60,
+        "human_contact_within_minutes": 20
+      },
+      "escalation_ladder": [
+        { "notify": "remote_diagnostics_engineer", "via": ["voice", "push"], "wait_seconds": 180 },
+        { "notify": "commissioning_lead_engineer", "via": ["voice", "sms"], "wait_seconds": 300 },
+        { "notify": "integration_project_manager", "via": ["voice"], "wait_seconds": 600 }
+      ],
+      "fallback": {
+        "action": "answering_service_live_transfer",
+        "never": ["voicemail_only", "silent_drop"],
+        "notes": "A commissioning window has a scheduled end date attached to it. An automated ending here just delays the discovery that the schedule has already slipped."
+      }
+    },
+    {
+      "id": "p2-degraded-existing-controls-fault",
+      "description": "A degraded or intermittent controls fault on a line with a documented criticality and an established relationship still gets a real ladder and a stated response window, even though it is not treated as a full stop. Remote diagnosis is still attempted first for the same reason it is attempted on a full stop: most of these faults do not need a truck roll to resolve.",
+      "match": {
+        "asset_criticality": ["production_critical", "production_impacting"],
+        "service_condition": ["degraded", "intermittent"],
+        "relationship": ["existing", "contract", "warranty"]
+      },
+      "priority": 2,
+      "response_target": {
+        "acknowledge_within_seconds": 60,
+        "human_contact_within_minutes": 45,
+        "onsite_target_hours": 24
+      },
+      "escalation_ladder": [
+        { "notify": "remote_diagnostics_engineer", "via": ["voice", "push"], "wait_seconds": 600 },
+        { "notify": "assigned_controls_engineer", "via": ["voice", "sms"], "wait_seconds": 900 }
+      ],
+      "fallback": {
+        "action": "queued_callback_committed",
+        "never": ["voicemail_only", "unmonitored_inbox"],
+        "notes": "A committed callback window is stated to the caller and recorded, not a promise to call back at some point."
+      }
+    },
+    {
+      "id": "p3-new-caller-business-hours",
+      "description": "A first time caller during business hours with no active fault, typically a request for a quote on a new machine build, a retrofit, or a new integration project. This is the path most often lost to slow response rather than to price, so it gets a real ladder rather than a voicemail box.",
+      "match": {
+        "relationship": ["new", "unknown"],
+        "service_condition": ["planned", "inquiry"],
+        "time_context": ["business_hours"]
+      },
+      "priority": 3,
+      "response_target": {
+        "acknowledge_within_seconds": 30,
+        "human_contact_within_minutes": 30
+      },
+      "escalation_ladder": [
+        { "notify": "office_coordinator", "via": ["voice", "push"], "wait_seconds": 120 },
+        { "notify": "sales_estimator", "via": ["voice", "sms"], "wait_seconds": 600 }
+      ],
+      "fallback": {
+        "action": "queued_callback_committed",
+        "never": ["voicemail_only"],
+        "notes": "A committed callback means a specific window is stated to the caller and recorded, not a promise to call back at some point."
+      }
+    },
+    {
+      "id": "p4-planned-maintenance",
+      "description": "Scheduled program backups, documentation updates, and minor HMI cosmetic requests on ancillary equipment with no production tie in.",
+      "match": {
+        "service_condition": ["planned", "inquiry"],
+        "asset_criticality": ["ancillary"]
+      },
+      "priority": 4,
+      "response_target": {
+        "acknowledge_within_seconds": 60,
+        "human_contact_within_minutes": 480
+      },
+      "escalation_ladder": [
+        { "notify": "office_coordinator", "via": ["email", "push"], "wait_seconds": 14400 }
+      ],
+      "fallback": {
+        "action": "queued_callback_committed",
+        "never": ["unmonitored_inbox"]
+      }
+    }
+  ],
+
+  "default_rule": {
+    "id": "default-unclassified",
+    "description": "Anything the classifier could not place on the criticality or condition axes. Treated as priority 2, not priority 4, because an unclassified controls call could be a documentation question or it could be a line that just faulted with a caller who does not yet know how to describe the fault code they are looking at. The cheapest way to tell the difference is to have a human ask.",
+    "priority": 2,
+    "response_target": {
+      "acknowledge_within_seconds": 60,
+      "human_contact_within_minutes": 30
+    },
+    "escalation_ladder": [
+      { "notify": "dispatch", "via": ["voice", "sms"], "wait_seconds": 600 },
+      { "notify": "integration_project_manager", "via": ["voice"], "wait_seconds": 900 }
+    ],
+    "fallback": {
+      "action": "answering_service_live_transfer",
+      "never": ["voicemail_only", "silent_drop"],
+      "notes": "Unclassified plus voicemail is how a real line down event becomes a Monday morning discovery."
+    }
+  }
+}

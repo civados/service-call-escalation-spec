@@ -1,0 +1,145 @@
+{
+  "version": "1.0",
+  "organization": "Example Industrial Refrigeration Service",
+  "timezone": "America/New_York",
+
+  "business_hours": [
+    { "days": ["monday", "tuesday", "wednesday", "thursday", "friday"], "start": "07:00", "end": "17:00" }
+  ],
+
+  "rules": [
+    {
+      "id": "p1-production-down",
+      "description": "Refrigeration loss on a production or storage asset. Product is at risk from the moment the call lands, so this rule ignores relationship entirely: a first time caller with a warm freezer is still a priority 1.",
+      "match": {
+        "asset_criticality": ["production_critical"],
+        "service_condition": ["down"]
+      },
+      "priority": 1,
+      "response_target": {
+        "acknowledge_within_seconds": 45,
+        "human_contact_within_minutes": 15,
+        "onsite_target_hours": 4
+      },
+      "escalation_ladder": [
+        { "notify": "on_call_refrigeration_technician", "via": ["voice", "sms"], "wait_seconds": 300 },
+        { "notify": "secondary_on_call_technician", "via": ["voice", "sms"], "wait_seconds": 300 },
+        { "notify": "service_manager", "via": ["voice"], "wait_seconds": 300 },
+        { "notify": "owner", "via": ["voice"], "wait_seconds": 600 }
+      ],
+      "fallback": {
+        "action": "answering_service_live_transfer",
+        "never": ["voicemail_only", "silent_drop"],
+        "notes": "If the ladder is exhausted on a P1, a human answers. There is no acceptable automated ending for this path."
+      }
+    },
+    {
+      "id": "p1-intermittent-critical-after-hours",
+      "description": "Intermittent faults on critical assets after hours. Deliberately priority 1 rather than 2. An intermittent fault on a critical asset at 22:00 is usually the last warning before a full loss overnight, and the cost of treating it as routine is a plant walking in to spoiled product.",
+      "match": {
+        "asset_criticality": ["production_critical"],
+        "service_condition": ["intermittent"],
+        "time_context": ["after_hours", "weekend", "holiday"]
+      },
+      "priority": 1,
+      "response_target": {
+        "acknowledge_within_seconds": 45,
+        "human_contact_within_minutes": 20
+      },
+      "escalation_ladder": [
+        { "notify": "on_call_refrigeration_technician", "via": ["voice", "sms"], "wait_seconds": 420 },
+        { "notify": "service_manager", "via": ["voice"], "wait_seconds": 420 }
+      ],
+      "fallback": {
+        "action": "answering_service_live_transfer",
+        "never": ["voicemail_only", "silent_drop"]
+      }
+    },
+    {
+      "id": "p2-degraded-contract",
+      "description": "Asset running out of specification but still holding. Contract customers carry a committed response window here.",
+      "match": {
+        "asset_criticality": ["production_critical", "production_impacting"],
+        "service_condition": ["degraded"],
+        "relationship": ["contract", "warranty"]
+      },
+      "priority": 2,
+      "response_target": {
+        "acknowledge_within_seconds": 60,
+        "human_contact_within_minutes": 60,
+        "onsite_target_hours": 24
+      },
+      "escalation_ladder": [
+        { "notify": "dispatch", "via": ["sms", "push"], "wait_seconds": 900 },
+        { "notify": "service_manager", "via": ["voice"], "wait_seconds": 1800 }
+      ],
+      "fallback": {
+        "action": "queued_callback_committed",
+        "never": ["voicemail_only", "unmonitored_inbox"],
+        "notes": "A committed callback window is stated to the caller and recorded. Voicemail is forbidden here because a contract response commitment cannot be satisfied by a message nobody has promised to return."
+      }
+    },
+    {
+      "id": "p3-new-caller-business-hours",
+      "description": "First time caller during business hours with no asset emergency. This is the revenue path most often lost, not to a competitor's pricing but to nobody picking up. It gets a real ladder rather than a voicemail box.",
+      "match": {
+        "relationship": ["new", "unknown"],
+        "service_condition": ["planned", "inquiry"],
+        "time_context": ["business_hours"]
+      },
+      "priority": 3,
+      "response_target": {
+        "acknowledge_within_seconds": 30,
+        "human_contact_within_minutes": 30
+      },
+      "escalation_ladder": [
+        { "notify": "office_coordinator", "via": ["voice", "push"], "wait_seconds": 120 },
+        { "notify": "sales_estimator", "via": ["voice", "sms"], "wait_seconds": 600 }
+      ],
+      "fallback": {
+        "action": "queued_callback_committed",
+        "never": ["voicemail_only"],
+        "notes": "Committed callback means a specific window is stated to the caller and recorded, not a promise to call back at some point."
+      }
+    },
+    {
+      "id": "p4-planned-maintenance",
+      "description": "Scheduling and preventive maintenance requests with no service impact.",
+      "match": {
+        "service_condition": ["planned", "inquiry"],
+        "asset_criticality": ["ancillary"]
+      },
+      "priority": 4,
+      "response_target": {
+        "acknowledge_within_seconds": 60,
+        "human_contact_within_minutes": 480
+      },
+      "escalation_ladder": [
+        { "notify": "office_coordinator", "via": ["email", "push"], "wait_seconds": 14400 }
+      ],
+      "fallback": {
+        "action": "queued_callback_committed",
+        "never": ["unmonitored_inbox"]
+      }
+    }
+  ],
+
+  "default_rule": {
+    "id": "default-unclassified",
+    "description": "Anything the classifier could not place. Treated as priority 2, not priority 4. An unclassified call is an unknown risk, and the cheapest way to find out is to have a human ask.",
+    "priority": 2,
+    "response_target": {
+      "acknowledge_within_seconds": 45,
+      "human_contact_within_minutes": 30
+    },
+    "escalation_ladder": [
+      { "notify": "dispatch", "via": ["voice", "sms"], "wait_seconds": 600 },
+      { "notify": "service_manager", "via": ["voice"], "wait_seconds": 900 }
+    ],
+    "fallback": {
+      "action": "answering_service_live_transfer",
+      "never": ["voicemail_only", "silent_drop"],
+      "notes": "Unclassified plus voicemail is how a production emergency becomes a Monday morning discovery."
+    }
+  }
+}

@@ -1,0 +1,23 @@
+version: 2
+
+updates:
+  # Keeps the SHA pinned actions in .github/workflows current.
+  # Pinning to a SHA is the safe choice; this is what stops it from
+  # also being the stale choice.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
+
+  - package-ecosystem: pip
+    directory: /.github
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies

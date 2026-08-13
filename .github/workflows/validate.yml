@@ -1,0 +1,101 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least privilege: this workflow only needs to read the repository.
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Schema and examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # Third party actions are pinned to a full commit SHA, not a tag.
+      # A tag can be moved to point at different code; a SHA cannot.
+      # Dependabot keeps these current, see .github/dependabot.yml
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install validator
+        run: pip install -r .github/requirements.txt
+
+      - name: Check schema is valid JSON Schema draft 2020-12
+        run: |
+          python - <<'PY'
+          import json
+          from jsonschema import Draft202012Validator
+          with open('schema/escalation-matrix.schema.json', encoding='utf-8') as fh:
+              schema = json.load(fh)
+          Draft202012Validator.check_schema(schema)
+          print('schema: valid draft 2020-12')
+          PY
+
+      - name: Validate every example against the schema
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          from jsonschema import Draft202012Validator
+
+          with open('schema/escalation-matrix.schema.json', encoding='utf-8') as fh:
+              validator = Draft202012Validator(json.load(fh))
+
+          examples = sorted(pathlib.Path('examples').glob('*.json'))
+          if not examples:
+              sys.exit('no examples found: examples/ must contain at least one matrix')
+
+          failed = False
+          for path in examples:
+              with path.open(encoding='utf-8') as fh:
+                  document = json.load(fh)
+              errors = sorted(validator.iter_errors(document), key=lambda e: list(e.path))
+              if errors:
+                  failed = True
+                  print(f'FAIL {path}')
+                  for error in errors:
+                      print(f'  at {list(error.path)}: {error.message}')
+              else:
+                  print(f'ok   {path}')
+
+          sys.exit(1 if failed else 0)
+          PY
+
+      - name: Every rule must terminate in a commitment
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+
+          # The schema cannot express this: a fallback must never be the only
+          # thing standing between a priority 1 contact and a dropped call.
+          # Any rule at priority 1 or 2 has to forbid voicemail_only explicitly.
+          failed = False
+          for path in sorted(pathlib.Path('examples').glob('*.json')):
+              with path.open(encoding='utf-8') as fh:
+                  document = json.load(fh)
+              rules = list(document.get('rules', []))
+              if 'default_rule' in document:
+                  rules.append(document['default_rule'])
+              for rule in rules:
+                  if rule.get('priority', 4) <= 2:
+                      never = rule.get('fallback', {}).get('never', [])
+                      if 'voicemail_only' not in never:
+                          failed = True
+                          print(
+                              f'FAIL {path}: rule "{rule["id"]}" is priority '
+                              f'{rule["priority"]} but does not forbid voicemail_only'
+                          )
+          if not failed:
+              print('ok   all priority 1 and 2 rules forbid voicemail_only')
+          sys.exit(1 if failed else 0)
+          PY

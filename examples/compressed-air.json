@@ -1,0 +1,167 @@
+{
+  "version": "1.0",
+  "organization": "Example Compressed Air Systems",
+  "timezone": "America/Chicago",
+
+  "business_hours": [
+    { "days": ["monday", "tuesday", "wednesday", "thursday", "friday"], "start": "07:00", "end": "17:00" }
+  ],
+
+  "rules": [
+    {
+      "id": "p1-plant-air-down",
+      "description": "Total loss of plant air stops every pneumatic device on the line at once. On a site running a single compressor there is no redundant unit to carry load while a technician responds, so this is a full plant stop, not a partial one. This rule ignores relationship entirely because a first time caller with a dead compressor is still a full plant stop, not a sales call.",
+      "match": {
+        "asset_criticality": ["production_critical"],
+        "service_condition": ["down"]
+      },
+      "priority": 1,
+      "response_target": {
+        "acknowledge_within_seconds": 45,
+        "human_contact_within_minutes": 15,
+        "onsite_target_hours": 4
+      },
+      "escalation_ladder": [
+        { "notify": "on_call_compressed_air_technician", "via": ["voice", "sms"], "wait_seconds": 300 },
+        { "notify": "secondary_on_call_technician", "via": ["voice", "sms"], "wait_seconds": 300 },
+        { "notify": "service_manager", "via": ["voice"], "wait_seconds": 300 },
+        { "notify": "owner", "via": ["voice"], "wait_seconds": 600 }
+      ],
+      "fallback": {
+        "action": "answering_service_live_transfer",
+        "never": ["voicemail_only", "silent_drop"],
+        "notes": "If the ladder is exhausted on a full plant stop, a human answers. There is no acceptable automated ending for this path."
+      }
+    },
+    {
+      "id": "p1-product-contact-moisture-degraded",
+      "description": "A dryer failure lets moisture carry over into pneumatic tools and into product contact air while the compressor itself keeps running and the pressure gauge still looks normal. Nothing on the header reads as down, which is exactly why this condition is dangerous: a technician who only checks pressure will miss it. Classified production_critical on purpose, because a batch contaminated by wet air is discovered after the fact, often on a shift that already shipped product. Consequence, not compressor uptime, sets the criticality here.",
+      "match": {
+        "asset_criticality": ["production_critical"],
+        "service_condition": ["degraded"]
+      },
+      "priority": 1,
+      "response_target": {
+        "acknowledge_within_seconds": 45,
+        "human_contact_within_minutes": 20
+      },
+      "escalation_ladder": [
+        { "notify": "on_call_compressed_air_technician", "via": ["voice", "sms"], "wait_seconds": 300 },
+        { "notify": "service_manager", "via": ["voice"], "wait_seconds": 300 }
+      ],
+      "fallback": {
+        "action": "answering_service_live_transfer",
+        "never": ["voicemail_only", "silent_drop"],
+        "notes": "A moisture excursion is a quality event as much as a mechanical one. It does not get an automated ending."
+      }
+    },
+    {
+      "id": "p1-intermittent-critical-after-hours",
+      "description": "A compressor that is short cycling or nuisance tripping is running right now and failing unpredictably, and after hours nobody is watching the trend on the panel. On a single unit site an intermittent trip overnight is frequently the last warning before the unit locks out entirely, and the plant opens the next morning to a dead header instead of a two hour repair. Treating an intermittent fault as routine because the compressor answered the last call is the mistake this rule exists to prevent.",
+      "match": {
+        "asset_criticality": ["production_critical"],
+        "service_condition": ["intermittent"],
+        "time_context": ["after_hours", "weekend", "holiday"]
+      },
+      "priority": 1,
+      "response_target": {
+        "acknowledge_within_seconds": 45,
+        "human_contact_within_minutes": 20
+      },
+      "escalation_ladder": [
+        { "notify": "on_call_compressed_air_technician", "via": ["voice", "sms"], "wait_seconds": 420 },
+        { "notify": "service_manager", "via": ["voice"], "wait_seconds": 420 }
+      ],
+      "fallback": {
+        "action": "answering_service_live_transfer",
+        "never": ["voicemail_only", "silent_drop"]
+      }
+    },
+    {
+      "id": "p2-pressure-drop-contract",
+      "description": "A pressure drop that reduces output without stopping it usually means a redundant bank is carrying the load, or another unit on site is absorbing the shortfall, so production continues at a workaround pace instead of stopping outright. It is still degrading throughput and still costs the customer money every hour it runs uncorrected. Contract and warranty customers get a committed response window here because a slow leak in output is a real obligation even though nothing on the floor has actually gone down.",
+      "match": {
+        "asset_criticality": ["production_impacting"],
+        "service_condition": ["degraded"],
+        "relationship": ["contract", "warranty"]
+      },
+      "priority": 2,
+      "response_target": {
+        "acknowledge_within_seconds": 60,
+        "human_contact_within_minutes": 60,
+        "onsite_target_hours": 24
+      },
+      "escalation_ladder": [
+        { "notify": "dispatch", "via": ["sms", "push"], "wait_seconds": 900 },
+        { "notify": "service_manager", "via": ["voice"], "wait_seconds": 1800 }
+      ],
+      "fallback": {
+        "action": "queued_callback_committed",
+        "never": ["voicemail_only", "unmonitored_inbox"],
+        "notes": "A committed callback window is stated to the caller and recorded. Voicemail cannot satisfy a contract response commitment because nobody has promised to return it."
+      }
+    },
+    {
+      "id": "p3-new-caller-business-hours",
+      "description": "A first time caller during business hours with no active fault, most often a quote for a new install or a redundant unit. This is the revenue path most often lost, not to a competitor's price but to nobody picking up, so it gets a real ladder rather than a voicemail box.",
+      "match": {
+        "relationship": ["new", "unknown"],
+        "service_condition": ["planned", "inquiry"],
+        "time_context": ["business_hours"]
+      },
+      "priority": 3,
+      "response_target": {
+        "acknowledge_within_seconds": 30,
+        "human_contact_within_minutes": 30
+      },
+      "escalation_ladder": [
+        { "notify": "office_coordinator", "via": ["voice", "push"], "wait_seconds": 120 },
+        { "notify": "sales_estimator", "via": ["voice", "sms"], "wait_seconds": 600 }
+      ],
+      "fallback": {
+        "action": "queued_callback_committed",
+        "never": ["voicemail_only"],
+        "notes": "A committed callback means a specific window is stated to the caller and recorded, not a promise to call back at some point."
+      }
+    },
+    {
+      "id": "p4-planned-maintenance",
+      "description": "Scheduled preventive maintenance, filter changes, and non urgent requests on ancillary equipment such as a shop air drop with no production tie in.",
+      "match": {
+        "service_condition": ["planned", "inquiry"],
+        "asset_criticality": ["ancillary"]
+      },
+      "priority": 4,
+      "response_target": {
+        "acknowledge_within_seconds": 60,
+        "human_contact_within_minutes": 480
+      },
+      "escalation_ladder": [
+        { "notify": "office_coordinator", "via": ["email", "push"], "wait_seconds": 14400 }
+      ],
+      "fallback": {
+        "action": "queued_callback_committed",
+        "never": ["unmonitored_inbox"]
+      }
+    }
+  ],
+
+  "default_rule": {
+    "id": "default-unclassified",
+    "description": "Anything the classifier could not place on the criticality or condition axes. Treated as priority 2, not priority 4, because an unclassified compressed air call is an unknown risk. It could be a shop air question or it could be a plant walking toward a full stop, and the cheapest way to find out which is to have a human ask.",
+    "priority": 2,
+    "response_target": {
+      "acknowledge_within_seconds": 45,
+      "human_contact_within_minutes": 30
+    },
+    "escalation_ladder": [
+      { "notify": "dispatch", "via": ["voice", "sms"], "wait_seconds": 600 },
+      { "notify": "service_manager", "via": ["voice"], "wait_seconds": 900 }
+    ],
+    "fallback": {
+      "action": "answering_service_live_transfer",
+      "never": ["voicemail_only", "silent_drop"],
+      "notes": "Unclassified plus voicemail is how a real plant air emergency becomes a Monday morning discovery."
+    }
+  }
+}

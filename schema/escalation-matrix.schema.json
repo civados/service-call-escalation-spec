@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://civados.com/schema/escalation-matrix/1.0/escalation-matrix.schema.json",
+  "title": "Service Call Escalation Matrix",
+  "description": "Describes how an inbound service contact is classified and routed. Platform neutral by design: this schema names no vendor, no phone system, and no CRM.",
+  "type": "object",
+  "required": ["version", "timezone", "rules", "default_rule"],
+  "additionalProperties": false,
+
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "Version of this spec the document targets, for example 1.0."
+    },
+    "organization": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human readable name of the operation this matrix belongs to."
+    },
+    "timezone": {
+      "type": "string",
+      "minLength": 3,
+      "description": "IANA timezone identifier, for example America/New_York. Required because every time_context evaluation depends on it, and assuming server time is the most common implementation defect."
+    },
+    "business_hours": {
+      "type": "array",
+      "description": "Windows treated as business_hours. Any time outside these windows resolves to after_hours, weekend, or holiday.",
+      "items": {
+        "type": "object",
+        "required": ["days", "start", "end"],
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "enum": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+            }
+          },
+          "start": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" },
+          "end": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Evaluated in document order. The first rule whose match block is satisfied wins. Order is significant and intentional: put the most specific rules first.",
+      "items": { "$ref": "#/$defs/rule" }
+    },
+    "default_rule": {
+      "$ref": "#/$defs/rule",
+      "description": "Required. Applied when no rule matches. A matrix without a default has an undefined failure mode, which in practice means a dropped call."
+    }
+  },
+
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "required": ["id", "priority", "response_target", "escalation_ladder", "fallback"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "description": "Stable kebab-case identifier. Used in logs and reporting, so it must not change once in production."
+        },
+        "description": { "type": "string" },
+        "match": { "$ref": "#/$defs/match" },
+        "priority": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "1 is the most urgent. Four levels is a deliberate constraint. Operations that define more than four rarely honor the distinction under load."
+        },
+        "response_target": { "$ref": "#/$defs/response_target" },
+        "escalation_ladder": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Ordered rungs. Each rung is attempted, then the ladder waits wait_seconds before advancing.",
+          "items": { "$ref": "#/$defs/ladder_step" }
+        },
+        "fallback": { "$ref": "#/$defs/fallback" }
+      }
+    },
+
+    "match": {
+      "type": "object",
+      "description": "Omitting an axis means the axis is not considered. An empty match object matches everything, which is only appropriate in default_rule.",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "asset_criticality": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": ["production_critical", "production_impacting", "ancillary", "unknown"]
+          },
+          "description": "What breaks downstream if this stays broken. Judged by consequence, not by equipment size."
+        },
+        "service_condition": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": ["down", "degraded", "intermittent", "planned", "inquiry"]
+          },
+          "description": "intermittent is separated from degraded on purpose: intermittent faults are frequently misrouted as low urgency and are often the earliest warning of a failure that will take out a critical asset."
+        },
+        "relationship": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": ["contract", "warranty", "existing", "new", "unknown"]
+          },
+          "description": "A new caller must never be routed below a contract customer purely for being new. Contract obligations are a floor on response, not a filter on who gets answered."
+        },
+        "time_context": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": ["business_hours", "after_hours", "weekend", "holiday"]
+          }
+        }
+      }
+    },
+
+    "response_target": {
+      "type": "object",
+      "required": ["acknowledge_within_seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "acknowledge_within_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Time to any acknowledgement the caller can perceive, automated or human. This is the number that determines whether the caller keeps dialing competitors."
+        },
+        "human_contact_within_minutes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Time to a human who can make a commitment. An automated acknowledgement does not satisfy this."
+        },
+        "onsite_target_hours": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Optional. Include only if it reflects a real contractual or operational commitment. An aspirational number here becomes a broken promise in reporting."
+        }
+      }
+    },
+
+    "ladder_step": {
+      "type": "object",
+      "required": ["notify", "via", "wait_seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "notify": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A role, not a person. Naming individuals here is the single most common reason an escalation matrix rots within a year."
+        },
+        "via": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["voice", "sms", "email", "push", "webhook"] },
+          "description": "Email alone is not an escalation channel for priority 1 or 2. It is included for completeness at lower priorities."
+        },
+        "wait_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How long to wait for a response before advancing. Zero means notify and advance immediately, used for parallel broadcast."
+        }
+      }
+    },
+
+    "fallback": {
+      "type": "object",
+      "required": ["action"],
+      "additionalProperties": false,
+      "description": "What happens when the entire ladder is exhausted. Required on every rule.",
+      "properties": {
+        "action": {
+          "enum": [
+            "answering_service_live_transfer",
+            "on_call_pool_broadcast",
+            "queued_callback_committed",
+            "voicemail_with_sms_confirmation"
+          ],
+          "description": "Note that plain voicemail is not an available value. If the ladder is exhausted, the caller must still receive something that confirms a human will follow up."
+        },
+        "never": {
+          "type": "array",
+          "items": { "enum": ["voicemail_only", "unmonitored_inbox", "silent_drop"] },
+          "description": "Explicit prohibitions. Declaring these makes the anti-pattern reviewable rather than accidental."
+        },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}
